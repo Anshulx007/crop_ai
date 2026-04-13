@@ -35,12 +35,17 @@ try:
 except ImportError:
     lgpio = None
 
+try:
+    from huggingface_hub import hf_hub_download
+except ImportError:
+    hf_hub_download = None
+
 
 # ========== CONFIGURATION ==========
 BASE_DIR = str(Path(__file__).parent.resolve())
 CLEANED_FOLDER = f"{BASE_DIR}/cleaned"
 RESULTS_FOLDER = f"{BASE_DIR}/results"
-MODEL_PATH = f"{BASE_DIR}/best.pt"   # keep best.pt in project folder for GitHub portability
+MODEL_PATH = f"{BASE_DIR}/best_yolox_v2.pt"   # changed from best.pt to HF-downloaded model
 
 LCD_ROWS = 2
 LCD_COLS = 16
@@ -88,106 +93,6 @@ def get_disease_info(cls_name: str):
     )
 
 
-# ========== LCD ==========
-class LCD:
-    def __init__(self):
-        self.lcd = None
-        if CharLCD is None:
-            print("LCD library not installed, skipping LCD")
-            return
-
-        try:
-            self.lcd = CharLCD(
-                i2c_expander="PCF8574",
-                address=I2C_ADDR,
-                port=1,
-                cols=LCD_COLS,
-                rows=LCD_ROWS,
-                dotsize=8
-            )
-            self.lcd.clear()
-        except Exception as e:
-            print(f"LCD init failed: {e}")
-            self.lcd = None
-
-    def show(self, line1, line2=""):
-        if not self.lcd:
-            return
-        try:
-            self.lcd.clear()
-            self.lcd.write_string(str(line1)[:LCD_COLS])
-            if line2:
-                self.lcd.crlf()
-                self.lcd.write_string(str(line2)[:LCD_COLS])
-        except Exception:
-            pass
-
-    def clear(self):
-        if self.lcd:
-            try:
-                self.lcd.clear()
-            except Exception:
-                pass
-
-
-# ========== LED ==========
-class LED:
-    def __init__(self):
-        self.chip = None
-        if lgpio is None:
-            print("lgpio not installed, skipping LED")
-            return
-
-        try:
-            self.chip = lgpio.gpiochip_open(0)
-            for pin in [LED_RED, LED_GREEN, LED_BLUE]:
-                lgpio.gpio_claim_output(self.chip, pin, 0)
-        except Exception as e:
-            print(f"LED init failed: {e}")
-            self.chip = None
-
-    def _set(self, r, g, b):
-        if not self.chip:
-            return
-        try:
-            lgpio.gpio_write(self.chip, LED_RED, r)
-            lgpio.gpio_write(self.chip, LED_GREEN, g)
-            lgpio.gpio_write(self.chip, LED_BLUE, b)
-        except Exception:
-            pass
-
-    def off(self):
-        self._set(0, 0, 0)
-
-    def red(self):
-        self._set(1, 0, 0)
-
-    def green(self):
-        self._set(0, 1, 0)
-
-    def blue(self):
-        self._set(0, 0, 1)
-
-    def set_severity(self, severity):
-        s = severity.lower()
-        if s in ("none", "low"):
-            self.green()
-        elif s == "medium":
-            self.blue()
-        elif s == "high":
-            self.red()
-        else:
-            self.green()
-
-    def cleanup(self):
-        if self.chip:
-            try:
-                self.off()
-                lgpio.gpiochip_close(self.chip)
-            except Exception:
-                pass
-
-
 # ========== MODEL LOAD (GLOBAL / ONCE) ==========
 MODEL = None
 
@@ -196,6 +101,17 @@ def load_model():
 
     if YOLO is None:
         raise RuntimeError("ultralytics not installed")
+
+    if not os.path.exists(MODEL_PATH):
+        if hf_hub_download is None:
+            raise RuntimeError("huggingface_hub not installed")
+
+        hf_hub_download(
+            repo_id="Anshulx007/tomato",
+            filename="best_yolox_v2.pt",
+            repo_type="model",
+            local_dir=BASE_DIR
+        )
 
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
